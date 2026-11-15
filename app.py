@@ -26,6 +26,7 @@ FETCH_K = 25
 TOP_K = 5
 LAMBDA_MULT = 0.75
 MIN_SIMILARITY = 0.35  # Initial guardrail; validate against test questions.
+GROQ_MODEL = "openai/gpt-oss-120b"  # Current Groq production model.
 CORPUS_DIR = Path("zyro-dynamics-hr-corpus")
 
 # ---------------------------------------------------------------------
@@ -124,6 +125,33 @@ st.markdown(
     [data-testid="stExpander"] { border:1px solid var(--line);border-radius:12px;background:rgba(17,29,52,.55); }
     .stCaption, small { color:#8493b1!important; }
     hr { border-color:var(--line)!important; }
+
+    /* Streamlit native UI: enforce readable contrast in dark theme. */
+    [data-testid="stHeader"], [data-testid="stToolbar"] {
+        background:rgba(8,13,27,.96)!important;
+        color:#edf2ff!important;
+    }
+    [data-testid="stAppViewContainer"], [data-testid="stMain"],
+    [data-testid="stMainBlockContainer"] { color:#edf2ff!important; }
+    [data-testid="stChatMessage"] p, [data-testid="stChatMessage"] li,
+    [data-testid="stChatMessage"] span { color:#edf2ff; }
+    [data-testid="stChatMessage"] a { color:#8edfff!important; }
+    [data-testid="stChatInput"] textarea,
+    [data-testid="stTextInput"] input,
+    [data-testid="stTextArea"] textarea { color:#f4f6ff!important; caret-color:#f4f6ff!important; }
+    [data-testid="stChatInput"] textarea::placeholder,
+    [data-testid="stTextInput"] input::placeholder { color:#9ba9c7!important; opacity:1!important; }
+    [data-testid="stExpander"] summary,
+    [data-testid="stExpander"] summary p,
+    [data-testid="stExpander"] [data-testid="stMarkdownContainer"] { color:#edf2ff!important; }
+    [data-testid="stAlert"] p, [data-testid="stAlert"] div { color:#edf2ff!important; }
+    .stButton > button, .stButton > button p {
+        color:#f4f6ff!important;
+    }
+    .stButton > button:focus, .stButton > button:active {
+        color:#ffffff!important;border-color:#9b9bff!important;
+    }
+    [data-testid="stBottom"] { background:linear-gradient(transparent,#080d1b 28%)!important; }
     </style>
     <div class="robot-float" title="Zyro AI assistant">🤖</div>
     """,
@@ -229,7 +257,7 @@ EMPLOYEE QUESTION:
 
 ANSWER:"""
     response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
+        model=GROQ_MODEL,
         messages=[{"role": "user", "content": prompt}],
         temperature=0,
         max_tokens=700,
@@ -316,7 +344,7 @@ with st.sidebar:
         <div style="font-size:12px;line-height:2;color:#b7c5e2">
         <div>◈ &nbsp; Retrieval <b>FAISS + MMR</b></div>
         <div>◈ &nbsp; Embeddings <b>BGE Small EN v1.5</b></div>
-        <div>◈ &nbsp; Model <b>Llama 3.3 · 70B</b></div>
+        <div>◈ &nbsp; Model <b>GPT-OSS · 120B</b></div>
         <div>◈ &nbsp; Sources <b>HR policy PDFs</b></div>
         </div>
         """,
@@ -452,14 +480,15 @@ if submitted_question:
                         {"role": "assistant", "content": answer, "sources": unique_sources}
                     )
                 except Exception as e:
-                    error_message = f"I couldn't complete that request just now. Please try again. (Technical detail: {e})"
+                    error_message = "I couldn’t generate an answer right now. Please try again in a moment. If this continues, check that your GROQ_API_KEY is valid and that the selected model is enabled for your Groq account."
                     st.error(error_message)
+                    print(f"Groq/RAG request failed: {type(e).__name__}: {e}")
                     active["messages"].append(
                         {"role": "assistant", "content": error_message, "sources": []}
                     )
         st.rerun()
 
 st.markdown(
-    '<div class="footer-note">POWERED BY INTELLIGENT RAG &nbsp;·&nbsp; FAISS + MMR &nbsp;·&nbsp; GROQ LLAMA 3.3 70B<br>Prototype for the Intelligent RAG project. Verify policy details against the cited PDF before acting.</div>',
+    '<div class="footer-note">POWERED BY INTELLIGENT RAG &nbsp;·&nbsp; FAISS + MMR &nbsp;·&nbsp; GROQ GPT-OSS 120B<br>Prototype for the Intelligent RAG project. Verify policy details against the cited PDF before acting.</div>',
     unsafe_allow_html=True,
 )
