@@ -117,11 +117,32 @@ st.markdown(
         background:rgba(31,46,78,.72);color:#e8eeff;transition:all .2s ease;
     }
     .stButton > button:hover { border-color:#8c8cff;color:white;background:rgba(75,81,158,.35); }
+    /* Chat composer: light input surface with dark, readable typed text. */
     [data-testid="stChatInput"] {
-        border:1px solid rgba(126,147,221,.35)!important;border-radius:17px!important;
-        background:rgba(16,26,48,.95)!important;box-shadow:0 8px 30px rgba(0,0,0,.18);
+        border:1px solid #cbd5e1!important;
+        border-radius:17px!important;
+        background:#ffffff!important;
+        box-shadow:0 8px 30px rgba(0,0,0,.18);
     }
-    [data-testid="stChatInput"] textarea { color:#f1f4ff!important; }
+    [data-testid="stChatInput"] > div {
+        background:#ffffff!important;
+        border-radius:17px!important;
+    }
+    [data-testid="stChatInput"] textarea,
+    [data-testid="stChatInput"] textarea:focus {
+        color:#172033!important;
+        -webkit-text-fill-color:#172033!important;
+        caret-color:#172033!important;
+        background:#ffffff!important;
+    }
+    [data-testid="stChatInput"] textarea::placeholder {
+        color:#64748b!important;
+        -webkit-text-fill-color:#64748b!important;
+        opacity:1!important;
+    }
+    [data-testid="stChatInput"] button {
+        color:#334155!important;
+    }
     [data-testid="stExpander"] { border:1px solid var(--line);border-radius:12px;background:rgba(17,29,52,.55); }
     .stCaption, small { color:#8493b1!important; }
     hr { border-color:var(--line)!important; }
@@ -136,10 +157,8 @@ st.markdown(
     [data-testid="stChatMessage"] p, [data-testid="stChatMessage"] li,
     [data-testid="stChatMessage"] span { color:#edf2ff; }
     [data-testid="stChatMessage"] a { color:#8edfff!important; }
-    [data-testid="stChatInput"] textarea,
     [data-testid="stTextInput"] input,
     [data-testid="stTextArea"] textarea { color:#f4f6ff!important; caret-color:#f4f6ff!important; }
-    [data-testid="stChatInput"] textarea::placeholder,
     [data-testid="stTextInput"] input::placeholder { color:#9ba9c7!important; opacity:1!important; }
     [data-testid="stExpander"] summary,
     [data-testid="stExpander"] summary p,
