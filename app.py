@@ -1,173 +1,113 @@
-import os
-from pathlib import Path
-
-import faiss
-import numpy as np
-import streamlit as st
-from groq import Groq
-from pypdf import PdfReader
-from sentence_transformers import SentenceTransformer
-
-st.set_page_config(page_title="Zyro Dynamics HR Help Desk", page_icon="📘", layout="wide")
-st.title("📘 Zyro Dynamics – HR Help Desk")
-st.caption("Answers are grounded in the provided HR policy PDFs. Check the citations for the source.")
-
-CHUNK_SIZE = 900
-CHUNK_OVERLAP = 150
-FETCH_K = 25
-TOP_K = 5
-LAMBDA_MULT = 0.75
-# Tune this on known in-scope and out-of-scope questions before relying on it.
-MIN_SIMILARITY = 0.35
-CORPUS_DIR = Path("zyro-dynamics-hr-corpus")
-
-@st.cache_resource(show_spinner="Loading embedding model and HR policy documents...")
-def build_index():
-    pdf_paths = sorted(CORPUS_DIR.glob("*.pdf"))
-    if not pdf_paths:
-        raise FileNotFoundError(
-            f"No PDFs found. Add the HR policy PDFs to: {CORPUS_DIR.resolve()}"
-        )
-
-    texts, metadata = [], []
-    for pdf_path in pdf_paths:
-        # This handbook belongs to a different company; do not use it as Zyro policy.
-        if pdf_path.name == "01_Employee_Handbook.pdf":
-            continue
-        reader = PdfReader(str(pdf_path))
-        for page_num, page in enumerate(reader.pages, start=1):
-            page_text = (page.extract_text() or "").strip()
-            if not page_text:
-                continue
-            start = 0
-            while start < len(page_text):
-                end = min(start + CHUNK_SIZE, len(page_text))
-                chunk = page_text[start:end].strip()
-                if chunk:
-                    texts.append(chunk)
-                    metadata.append({
-                        "file": pdf_path.name,
-                        "page": page_num,
-                        "text": chunk
-                    })
-                if end >= len(page_text):
-                    break
-                start = end - CHUNK_OVERLAP
-
-    if not texts:
-        raise ValueError("No readable text was extracted from the PDFs.")
-
-    model = SentenceTransformer("BAAI/bge-small-en-v1.5")
-    vectors = model.encode(
-        texts, convert_to_numpy=True, normalize_embeddings=True,
-        show_progress_bar=False
-    ).astype("float32")
-    index = faiss.IndexFlatIP(vectors.shape[1])
-    index.add(vectors)
-    return model, index, vectors, metadata
-
-def mmr_search(question, model, index, vectors, metadata):
-    q_vec = model.encode(
-        [question], convert_to_numpy=True, normalize_embeddings=True
-    ).astype("float32")
-    scores, indices = index.search(q_vec, min(FETCH_K, len(metadata)))
-    candidates = [int(i) for i in indices[0] if i >= 0]
-    candidate_scores = {int(i): float(s) for i, s in zip(indices[0], scores[0]) if i >= 0}
-    if not candidates:
-        return [], 0.0
-
-    selected = [max(candidates, key=lambda i: candidate_scores[i])]
-    while len(selected) < min(TOP_K, len(candidates)):
-        remaining = [i for i in candidates if i not in selected]
-        best_i, best_score = None, -1e9
-        for i in remaining:
-            relevance = candidate_scores[i]
-            redundancy = max(float(np.dot(vectors[i], vectors[j])) for j in selected)
-            mmr_score = LAMBDA_MULT * relevance - (1 - LAMBDA_MULT) * redundancy
-            if mmr_score > best_score:
-                best_i, best_score = i, mmr_score
-        if best_i is None:
-            break
-        selected.append(best_i)
-
-    return [metadata[i] for i in selected], max(candidate_scores.values())
-
-def answer_question(question, model, index, vectors, metadata, client):
-    retrieved, top_similarity = mmr_search(question, model, index, vectors, metadata)
-    if not retrieved or top_similarity < MIN_SIMILARITY:
-        return (
-            "I’m sorry, but I couldn’t find this information in the provided Zyro Dynamics HR policy documents. Please contact HR for assistance.",
-            []
-        )
-
-    context = "\n\n".join(
-        f"[Source: {d['file']}, page {d['page']}]\n{d['text']}" for d in retrieved
-    )
-    prompt = f"""You are Zyro Dynamics' HR policy assistant.
-Answer only using the supplied HR policy context.
-If the context does not directly contain enough information to answer, politely say the information is unavailable in the provided HR policy documents and suggest contacting HR.
-Do not guess, invent policy details, or use outside knowledge.
-Be concise but include important numbers, dates, eligibility conditions, and exceptions.
-
-HR POLICY CONTEXT:
-{context}
-
-EMPLOYEE QUESTION:
-{question}
-
-ANSWER:"""
-    response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0,
-        max_tokens=700,
-    )
-    return response.choices[0].message.content.strip(), retrieved
-
-with st.sidebar:
-    st.subheader("About this chatbot")
-    st.write("This demo retrieves information from Zyro Dynamics HR policy PDFs.")
-    st.write("Retrieval: FAISS + MMR")
-    st.write("Embeddings: BAAI/bge-small-en-v1.5")
-    st.write("LLM: Groq Llama 3.3 70B")
-    st.caption("A similarity threshold is used as an initial out-of-scope guardrail; it should be validated against test questions.")
-
-api_key = st.secrets.get("GROQ_API_KEY", os.getenv("GROQ_API_KEY", ""))
-if not api_key:
-    st.error("GROQ_API_KEY is missing. Add it in Streamlit Cloud → App settings → Secrets.")
-    st.stop()
-
-try:
-    model, index, vectors, metadata = build_index()
-except Exception as e:
-    st.error(str(e))
-    st.info("Upload the 10 relevant Zyro Dynamics HR policy PDFs into the corpus folder in your GitHub repository. Do not include the unrelated Acrux Dynamics handbook.")
-    st.stop()
-
-client = Groq(api_key=api_key)
-question = st.text_input(
-    "Ask an HR policy question",
-    placeholder="Example: How does my Earned Leave accrue every month?"
+    <div class="hero">
+      <div class="eyebrow">✦ Your intelligent workplace companion</div>
+      <h1>HR answers, <span>made effortless.</span></h1>
+      <p>Ask anything about Zyro Dynamics policies. Your AI assistant searches the official HR knowledge base and responds with source-backed answers.</p>
+      <div class="feature-row">
+        <span class="feature-chip">✧ Policy-grounded answers</span>
+        <span class="feature-chip">⌕ Smart semantic search</span>
+        <span class="feature-chip">▤ PDF citations</span>
+        <span class="feature-chip">◉ Privacy-conscious demo</span>
+      </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
 )
-if st.button("Get answer", type="primary", disabled=not question.strip()):
-    with st.spinner("Searching HR policies and generating an answer..."):
-        try:
-            answer, sources = answer_question(question.strip(), model, index, vectors, metadata, client)
-            st.subheader("Answer")
-            st.write(answer)
-            if sources:
-                st.subheader("Citations")
-                st.caption("Open the matching PDF in the corpus and check the page and quoted passage below.")
-                seen = set()
-                for src in sources:
-                    key = (src["file"], src["page"])
-                    if key in seen:
-                        continue
-                    seen.add(key)
-                    with st.expander(f"{src['file']} — page {src['page']}"):
-                        st.write(src["text"])
-        except Exception as e:
-            st.error(f"Could not generate an answer: {e}")
 
-st.divider()
-st.caption("Prototype for the Intelligent RAG project. Verify policy details against the cited PDF before acting.")
+active = get_active()
+if not active["messages"]:
+    st.markdown(
+        """
+        <div class="welcome-card">
+          <div style="font-size:27px;margin-bottom:9px">👋 🤖</div>
+          <div class="welcome-title">Hey there! I'm Zyro AI.</div>
+          <div class="welcome-copy">I'm ready to help you navigate leave, work arrangements, compensation, travel, onboarding and other company policies. What would you like to know?</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.markdown('<div class="section-title">✨ Try asking me</div>', unsafe_allow_html=True)
+    st.markdown('<div class="suggestion-note">Choose a prompt to start your conversation.</div>', unsafe_allow_html=True)
+    prompts = [
+        "How does Earned Leave accrue every month?",
+        "Who is eligible to work from home?",
+        "When will my monthly salary be credited?",
+        "What is the travel allowance for my grade?",
+    ]
+    prompt_cols = st.columns(2)
+    chosen_prompt = None
+    for i, prompt in enumerate(prompts):
+        with prompt_cols[i % 2]:
+            if st.button("✧  " + prompt, key=f"suggest_{i}", use_container_width=True):
+                chosen_prompt = prompt
+else:
+    chosen_prompt = None
+
+# Render existing conversation
+for message in active["messages"]:
+    with st.chat_message(message["role"], avatar="🧑🏻‍💻" if message["role"] == "user" else "🤖"):
+        st.markdown(message["content"])
+        if message["role"] == "assistant" and message.get("sources"):
+            st.markdown('<div class="source-head">▤ &nbsp; Sources used</div>', unsafe_allow_html=True)
+            for src in message["sources"]:
+                st.markdown(
+                    f"""<div class="source-card">📄 &nbsp; <b>{src['file']}</b>
+                    <div class="source-meta">Page {src['page']} · Retrieved policy passage</div></div>""",
+                    unsafe_allow_html=True,
+                )
+                with st.expander("View retrieved passage"):
+                    st.write(src["text"])
+
+# Process chat input or a suggested prompt
+question = st.chat_input("Message Zyro AI… ask about any HR policy")
+submitted_question = question or chosen_prompt
+
+if submitted_question:
+    clean_question = submitted_question.strip()
+    if clean_question:
+        active["messages"].append({"role": "user", "content": clean_question})
+        if active["title"] == "New conversation":
+            active["title"] = clean_question[:34] + ("…" if len(clean_question) > 34 else "")
+        with st.chat_message("user", avatar="🧑🏻‍💻"):
+            st.markdown(clean_question)
+
+        with st.chat_message("assistant", avatar="🤖"):
+            with st.spinner("Zyro AI is searching the policy knowledge base…"):
+                try:
+                    answer, sources = answer_question(
+                        clean_question, model, index, vectors, metadata, client
+                    )
+                    st.markdown(answer)
+                    if sources:
+                        st.markdown('<div class="source-head">▤ &nbsp; Sources used</div>', unsafe_allow_html=True)
+                        seen = set()
+                        unique_sources = []
+                        for src in sources:
+                            key = (src["file"], src["page"])
+                            if key in seen:
+                                continue
+                            seen.add(key)
+                            unique_sources.append(src)
+                            st.markdown(
+                                f"""<div class="source-card">📄 &nbsp; <b>{src['file']}</b>
+                                <div class="source-meta">Page {src['page']} · Retrieved policy passage</div></div>""",
+                                unsafe_allow_html=True,
+                            )
+                            with st.expander("View retrieved passage"):
+                                st.write(src["text"])
+                    else:
+                        unique_sources = []
+                    active["messages"].append(
+                        {"role": "assistant", "content": answer, "sources": unique_sources}
+                    )
+                except Exception as e:
+                    error_message = f"I couldn't complete that request just now. Please try again. (Technical detail: {e})"
+                    st.error(error_message)
+                    active["messages"].append(
+                        {"role": "assistant", "content": error_message, "sources": []}
+                    )
+        st.rerun()
+
+st.markdown(
+    '<div class="footer-note">POWERED BY INTELLIGENT RAG &nbsp;·&nbsp; FAISS + MMR &nbsp;·&nbsp; GROQ LLAMA 3.3 70B<br>Prototype for the Intelligent RAG project. Verify policy details against the cited PDF before acting.</div>',
+    unsafe_allow_html=True,
+)
